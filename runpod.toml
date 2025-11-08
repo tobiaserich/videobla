@@ -1,7 +1,7 @@
 [build]
-# Build Configuration
-dockerfile = "serverless/Dockerfile"
-context = "serverless/"
+# Build Configuration - Dockerfile ist jetzt im Root!
+dockerfile = "Dockerfile"
+context = "."  # Root des Repos
 # Cache layers für schnellere Builds
 cache = true
 
