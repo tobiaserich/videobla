@@ -1,0 +1,47 @@
+name: Deploy to Runpod Serverless
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "serverless/**"
+      - "runpod.toml"
+  workflow_dispatch: # Manueller Trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Notify Runpod Webhook
+        if: github.event_name == 'push'
+        run: |
+          echo "🚀 Triggering Runpod rebuild..."
+          curl -X POST "${{ secrets.RUNPOD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "ref": "${{ github.ref }}",
+              "sha": "${{ github.sha }}",
+              "repository": "${{ github.repository }}"
+            }'
+          echo "✅ Build triggered!"
+
+      - name: Wait for build (optional)
+        if: github.event_name == 'push'
+        run: |
+          echo "⏳ Waiting 2 minutes for build to start..."
+          sleep 120
+          echo "Check build status: https://www.runpod.io/console/serverless"
+
+      # Optional: Send notification to Discord/Slack
+      # - name: Notify on Discord
+      #   uses: sarisia/actions-status-discord@v1
+      #   if: always()
+      #   with:
+      #     webhook: ${{ secrets.DISCORD_WEBHOOK }}
+      #     title: "Runpod Deployment"
+      #     description: "Build triggered for commit ${{ github.sha }}"

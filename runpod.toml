@@ -1,0 +1,27 @@
+[build]
+# Build Configuration
+dockerfile = "serverless/Dockerfile"
+context = "serverless/"
+# Cache layers für schnellere Builds
+cache = true
+
+[deploy]
+# GPU Configuration
+gpu = "RTX4090"  # oder "A100", "RTX3090", etc.
+container_disk_size_gb = 20
+
+# Scaling
+min_workers = 0  # Kostenlos wenn idle
+max_workers = 3  # Bis zu 3 parallel
+idle_timeout = 5  # Sekunden bis Worker runtergefahren wird
+
+# Network
+network_volume_size_gb = 0  # Optional: für persistenten Storage
+
+[env]
+# Environment Variables (keine Secrets!)
+MODEL_PATH = "./weights/LongCat-Video"
+PYTORCH_CUDA_ALLOC_CONF = "max_split_size_mb:512"
+HF_HOME = "/runpod-volume/huggingface"  # Cache für HF Models
+
+# Secrets werden in Runpod Console gesetzt, nicht hier!
