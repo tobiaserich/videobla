@@ -1,0 +1,23 @@
+# WICHTIG: torch, torchvision, torchaudio sind bereits im Base Image!
+# Nicht erneut installieren um Speicherplatz zu sparen
+
+# LongCat-Video Dependencies
+diffusers>=0.30.0
+transformers>=4.40.0
+accelerate>=0.30.0
+safetensors>=0.4.0
+
+# Runpod SDK
+runpod>=1.6.0
+
+# Utilities
+pillow>=10.0.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Flash Attention wird separat im Dockerfile installiert (optional)
+# flash-attn>=2.7.4
+
+# Optional: für S3 Upload
+# boto3>=1.34.0
