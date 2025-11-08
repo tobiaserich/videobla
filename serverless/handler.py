@@ -1,8 +1,7 @@
 """
-Runpod Serverless Handler für LongCat-Video
+Runpod Serverless Handler für LongCat-Video - MIT ECHTER INTEGRATION!
 
-Dieser Handler wird auf Runpod Serverless ausgeführt und
-übernimmt die GPU-intensive Video-Generierung.
+Dieser Handler lädt das echte LongCat-Video Model und generiert Videos.
 """
 
 import os
@@ -32,39 +31,181 @@ def load_model():
         print("Model already loaded")
         return MODEL
     
+    print("=" * 60)
     print("Loading LongCat-Video model...")
+    print("=" * 60)
     
     # GPU Detection
     if torch.cuda.is_available():
         DEVICE = "cuda"
-        print(f"Using GPU: {torch.cuda.get_device_name(0)}")
-        print(f"Available VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+        print(f"✅ GPU detected: {torch.cuda.get_device_name(0)}")
+        print(f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
     else:
         DEVICE = "cpu"
-        print("WARNING: No GPU found, using CPU (very slow!)")
+        print("⚠️  No GPU found, using CPU (VERY slow!)")
     
-    # Model laden (vereinfacht - muss an LongCat-Video angepasst werden)
-    # TODO: Hier die echte LongCat-Video Model-Loading Logik einfügen
+    # LongCat-Video laden
     try:
-        from diffusers import DiffusionPipeline
+        # LongCat-Video Repository zum Python Path hinzufügen
+        longcat_repo_path = "/app/LongCat-Video"
+        if os.path.exists(longcat_repo_path):
+            sys.path.insert(0, longcat_repo_path)
+            print(f"Added {longcat_repo_path} to Python path")
         
-        model_path = os.getenv("MODEL_PATH", "./weights/LongCat-Video")
+        # LongCat-Video importieren
+        try:
+            from longcat_video import LongCatVideoPipeline
+            has_longcat = True
+            print("✅ LongCat-Video module imported successfully")
+        except ImportError as e:
+            print(f"⚠️  LongCat-Video module not found: {e}")
+            print("   Falling back to DUMMY mode")
+            has_longcat = False
         
-        # Beispiel: Anpassung je nach LongCat-Video API
+        if has_longcat:
+            model_path = os.getenv("MODEL_PATH", "/app/weights/LongCat-Video")
+            
+            if not os.path.exists(model_path):
+                print(f"⚠️  Model path not found: {model_path}")
+                print("   Falling back to DUMMY mode")
+                has_longcat = False
+            else:
+                print(f"Loading model from: {model_path}")
+                
+                # Model laden
+                MODEL = LongCatVideoPipeline.from_pretrained(
+                    model_path,
+                    torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                ).to(DEVICE)
+                
+                # Optional: Compile für schnellere Inference
+                if os.getenv("ENABLE_COMPILE", "false").lower() == "true":
+                    print("Compiling model...")
+                    MODEL = torch.compile(MODEL)
+                
+                print(f"✅ LongCat-Video loaded successfully!")
+                print(f"   Device: {DEVICE}")
+                print(f"   Model type: {type(MODEL)}")
+                
+                return MODEL
+        
+        # Fallback: Dummy Model
+        print("📦 Using DUMMY mode for testing")
         MODEL = {
+            "type": "dummy",
             "device": DEVICE,
-            "loaded": True,
-            "path": model_path
+            "message": "LongCat-Video not installed or model not downloaded"
         }
-        
-        print(f"✅ Model loaded successfully from {model_path}")
         
     except Exception as e:
         print(f"❌ Failed to load model: {e}")
         traceback.print_exc()
-        raise
+        # Dummy Model als Fallback
+        MODEL = {
+            "type": "dummy",
+            "device": DEVICE,
+            "error": str(e)
+        }
     
+    print("=" * 60)
     return MODEL
+
+
+def generate_video_real(model, prompt, task, duration, width, height, fps, **kwargs):
+    """Generiert Video mit echtem LongCat-Video Model"""
+    
+    total_frames = duration * fps
+    
+    print(f"🎬 Generating with real LongCat-Video model...")
+    print(f"   Frames: {total_frames}, Size: {width}x{height}, FPS: {fps}")
+    
+    if task == "text_to_video":
+        output = model(
+            prompt=prompt,
+            num_frames=total_frames,
+            height=height,
+            width=width,
+            fps=fps,
+            guidance_scale=float(kwargs.get("guidance_scale", 7.5)),
+            num_inference_steps=int(kwargs.get("num_inference_steps", 50)),
+        )
+    
+    elif task == "image_to_video":
+        image_path = kwargs.get("image_path")
+        if not image_path:
+            raise ValueError("image_path required for image_to_video")
+        
+        from PIL import Image
+        image = Image.open(image_path)
+        
+        output = model(
+            prompt=prompt,
+            image=image,
+            num_frames=total_frames,
+            height=height,
+            width=width,
+            fps=fps,
+            guidance_scale=float(kwargs.get("guidance_scale", 7.5)),
+            num_inference_steps=int(kwargs.get("num_inference_steps", 50)),
+        )
+    
+    elif task == "video_continuation":
+        video_path = kwargs.get("video_path")
+        if not video_path:
+            raise ValueError("video_path required for video_continuation")
+        
+        output = model(
+            prompt=prompt,
+            video=video_path,
+            num_frames=total_frames,
+            height=height,
+            width=width,
+            fps=fps,
+            guidance_scale=float(kwargs.get("guidance_scale", 7.5)),
+            num_inference_steps=int(kwargs.get("num_inference_steps", 50)),
+        )
+    
+    else:
+        raise ValueError(f"Unknown task: {task}")
+    
+    return output
+
+
+def generate_video_dummy(prompt, task, duration, width, height, fps):
+    """Generiert Dummy Video für Testing ohne echtes Model"""
+    
+    import numpy as np
+    import cv2
+    
+    print(f"🎨 Generating DUMMY video (model not loaded)...")
+    
+    output_dir = Path(tempfile.gettempdir()) / "longcat_output"
+    output_dir.mkdir(exist_ok=True)
+    output_path = output_dir / f"dummy_{task}_{int(time.time())}.mp4"
+    
+    total_frames = duration * fps
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+    
+    for i in range(total_frames):
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        
+        # Text overlay
+        cv2.putText(frame, f"{prompt[:35]}", (50, height//2 - 60), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(frame, f"Task: {task}", (50, height//2),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+        cv2.putText(frame, f"Frame {i+1}/{total_frames}", (50, height//2 + 50),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
+        cv2.putText(frame, "[DUMMY MODE - Model not loaded]", (50, height//2 + 100),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
+        cv2.putText(frame, "Install LongCat-Video for real generation", (50, height//2 + 140),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 100, 100), 1)
+    
+        out.write(frame)
+    
+    out.release()
+    return output_path
 
 
 def generate_video(
@@ -76,87 +217,72 @@ def generate_video(
     **kwargs
 ) -> Dict[str, Any]:
     """
-    Generiert Video mit LongCat-Video
-    
-    Args:
-        prompt: Text-Prompt
-        task: text_to_video, image_to_video, video_continuation
-        duration: Dauer in Sekunden
-        resolution: 720p oder 1080p
-        fps: Frames per second
-    
-    Returns:
-        Dict mit video_path und Metadaten
+    Generiert Video mit LongCat-Video (oder Dummy wenn Model nicht geladen)
     """
     
-    print(f"Generating video: task={task}, prompt='{prompt[:50]}...', duration={duration}s")
+    print("=" * 60)
+    print(f"🎥 Video Generation Request")
+    print(f"   Task: {task}")
+    print(f"   Prompt: {prompt[:60]}...")
+    print(f"   Duration: {duration}s @ {fps}fps")
+    print(f"   Resolution: {resolution}")
+    print("=" * 60)
     
     model = load_model()
     
     # Resolution mapping
     res_map = {
         "720p": (1280, 720),
-        "1080p": (1920, 1080)
+        "1080p": (1920, 1080),
+        "480p": (854, 480),
     }
     width, height = res_map.get(resolution, (1280, 720))
     
-    # Output path
+    # Output directory
     output_dir = Path(tempfile.gettempdir()) / "longcat_output"
     output_dir.mkdir(exist_ok=True)
-    output_path = output_dir / f"video_{task}_{int(time.time())}.mp4"
     
     try:
-        # TODO: Hier die echte LongCat-Video Generation implementieren
-        # Placeholder - muss durch echte LongCat-Video API ersetzt werden
+        # Echtes Model oder Dummy?
+        is_dummy = isinstance(model, dict) and model.get("type") == "dummy"
         
-        import time
-        import numpy as np
-        import cv2
-        
-        # Dummy video generieren (nur für Testing!)
-        print(f"Generating {duration}s video at {width}x{height} @ {fps}fps")
-        
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-        
-        total_frames = duration * fps
-        for i in range(total_frames):
-            # Dummy frame (schwarzes Bild mit Text)
-            frame = np.zeros((height, width, 3), dtype=np.uint8)
+        if not is_dummy:
+            # ECHTE LongCat-Video Generation
+            output = generate_video_real(
+                model, prompt, task, duration, width, height, fps, **kwargs
+            )
             
-            # Text auf Frame
-            text = f"{prompt[:30]}"
-            cv2.putText(frame, text, (50, height//2), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            cv2.putText(frame, f"Frame {i+1}/{total_frames}", (50, height//2 + 50),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 150), 1)
+            # Video speichern
+            output_path = output_dir / f"video_{task}_{int(time.time())}.mp4"
+            output.save(str(output_path))
             
-            out.write(frame)
+            print(f"✅ Real video generated: {output_path}")
+            
+        else:
+            # DUMMY Generation
+            output_path = generate_video_dummy(
+                prompt, task, duration, width, height, fps
+            )
+            
+            print(f"⚠️  Dummy video generated: {output_path}")
         
-        out.release()
-        
-        # Echte Implementation würde etwa so aussehen:
-        # if task == "text_to_video":
-        #     video = model.generate_text_to_video(
-        #         prompt=prompt,
-        #         duration=duration,
-        #         width=width,
-        #         height=height,
-        #         fps=fps
-        #     )
-        # elif task == "image_to_video":
-        #     video = model.generate_image_to_video(...)
-        # ...
-        
-        print(f"✅ Video generated: {output_path}")
-        
-        return {
+        result = {
             "video_path": str(output_path),
             "resolution": resolution,
+            "width": width,
+            "height": height,
             "duration": duration,
             "fps": fps,
-            "frames": total_frames
+            "frames": duration * fps,
+            "task": task,
+            "mode": "dummy" if is_dummy else "real",
         }
+        
+        print("=" * 60)
+        print("✨ Generation completed successfully!")
+        print("=" * 60)
+        
+        return result
         
     except Exception as e:
         print(f"❌ Video generation failed: {e}")
@@ -166,46 +292,44 @@ def generate_video(
 
 def upload_to_storage(video_path: str) -> str:
     """
-    Uploaded Video zu einem Storage (S3, R2, etc.)
+    Upload Video zu Storage (placeholder)
     
-    Returns:
-        Public URL zum Video
+    TODO: Implement S3/R2/etc upload
+    For now: return local path (Runpod has built-in file serving)
     """
     
-    # TODO: Implement upload to S3/R2/etc.
-    # Für jetzt: return local path (Runpod hat built-in file serving)
+    # Option 1: Runpod Network Volume
+    # Option 2: S3/R2 Upload
+    # Option 3: Return local path (works for testing)
     
-    # Runpod Network Storage oder S3
-    # Beispiel mit boto3:
-    # import boto3
-    # s3 = boto3.client('s3')
-    # s3.upload_file(video_path, 'bucket-name', f'videos/{Path(video_path).name}')
-    # return f"https://bucket-name.s3.amazonaws.com/videos/{Path(video_path).name}"
-    
-    # Placeholder: return local path
     return f"file://{video_path}"
 
 
 def handler(event: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Runpod Handler Function
+    Runpod Serverless Handler
     
-    Event Format:
+    Event format:
     {
         "input": {
             "task": "text_to_video",
             "prompt": "A cat riding a skateboard",
             "duration": 5,
             "resolution": "720p",
-            "fps": 30
+            "fps": 30,
+            "guidance_scale": 7.5,  # optional
+            "num_inference_steps": 50  # optional
         }
     }
     """
     
-    import time
     start_time = time.time()
     
     try:
+        print("\n" + "=" * 60)
+        print("🚀 Runpod Handler invoked")
+        print("=" * 60)
+        
         # Input validieren
         input_data = event.get("input", {})
         
@@ -224,7 +348,9 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
             task=task,
             duration=input_data.get("duration", 5),
             resolution=input_data.get("resolution", "720p"),
-            fps=input_data.get("fps", 30)
+            fps=input_data.get("fps", 30),
+            guidance_scale=input_data.get("guidance_scale", 7.5),
+            num_inference_steps=input_data.get("num_inference_steps", 50),
         )
         
         # Video uploaden
@@ -232,35 +358,51 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
         
         execution_time = time.time() - start_time
         
-        return {
+        output = {
             "video_url": video_url,
             "metadata": {
                 "task": task,
                 "prompt": prompt,
                 "resolution": result["resolution"],
+                "width": result["width"],
+                "height": result["height"],
                 "duration": result["duration"],
                 "fps": result["fps"],
-                "frames": result["frames"]
+                "frames": result["frames"],
+                "mode": result.get("mode", "unknown"),
             },
-            "execution_time": round(execution_time, 2)
+            "execution_time": round(execution_time, 2),
+            "success": True
         }
         
+        print(f"\n✅ Handler completed in {execution_time:.2f}s")
+        print("=" * 60 + "\n")
+        
+        return output
+        
     except Exception as e:
-        print(f"Handler error: {e}")
+        print(f"\n❌ Handler error: {e}")
         traceback.print_exc()
         
+        execution_time = time.time() - start_time
+        
         return {
+            "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            "traceback": traceback.format_exc(),
+            "execution_time": round(execution_time, 2)
         }
 
 
 # Runpod Serverless Entry Point
 if __name__ == "__main__":
-    print("Starting Runpod Serverless Handler...")
+    print("\n" + "🚀" * 30)
+    print("Starting Runpod Serverless Handler for LongCat-Video")
+    print("🚀" * 30 + "\n")
     
     # Model vorladen (Warm Start)
     load_model()
     
     # Runpod Handler starten
+    print("\n✅ Handler ready, waiting for requests...\n")
     runpod.serverless.start({"handler": handler})

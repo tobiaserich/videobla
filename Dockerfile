@@ -27,17 +27,21 @@ RUN pip install --no-cache-dir \
     numpy>=1.24.0 \
     scipy>=1.11.0
 
-# Flash Attention separat installieren (optional - kann übersprungen werden für Testing)
-# RUN pip install --no-cache-dir ninja packaging psutil
-# RUN pip install --no-cache-dir flash-attn==2.7.4.post1 --no-build-isolation
+# LongCat-Video Repository clonen und installieren
+RUN git clone https://github.com/meituan-longcat/LongCat-Video.git /app/LongCat-Video && \
+    cd /app/LongCat-Video && \
+    pip install --no-cache-dir -r requirements.txt
 
-# LongCat-Video Repository (optional, falls benötigt)
-# RUN git clone https://github.com/meituan-longcat/LongCat-Video.git /app/LongCat-Video
+# LongCat-Video Repository clonen und installieren
+RUN git clone https://github.com/meituan-longcat/LongCat-Video.git /app/LongCat-Video && \
+    cd /app/LongCat-Video && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Model weights vorab herunterladen (optional für schnellere Starts)
+# Model weights OPTIONAL vorab herunterladen (spart Zeit beim ersten Start)
+# WARNUNG: Das macht das Image ~30GB größer!
+# Auskommentieren wenn du das Model zur Build-Zeit laden willst:
 # ENV HF_HOME=/app/hf_cache
-# RUN python -c "from huggingface_hub import snapshot_download; \
-#     snapshot_download('meituan-longcat/LongCat-Video', local_dir='/app/weights/LongCat-Video')"
+# RUN huggingface-cli download meituan-longcat/LongCat-Video --local-dir /app/weights/LongCat-Video
 
 # Handler kopieren (aus serverless/ Unterverzeichnis)
 COPY serverless/handler.py .
