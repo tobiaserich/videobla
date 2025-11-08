@@ -34,14 +34,14 @@ RUN rm -rf /app/LongCat-Video && \
     cd /app/LongCat-Video && \
     pip install --no-cache-dir --ignore-installed blinker -r requirements.txt
 
+# Handler kopieren (NACH git clone, damit Code-Änderungen den Cache brechen!)
+COPY serverless/handler.py .
+
 # Model weights OPTIONAL vorab herunterladen (spart Zeit beim ersten Start)
 # WARNUNG: Das macht das Image ~30GB größer!
 # Auskommentieren wenn du das Model zur Build-Zeit laden willst:
 # ENV HF_HOME=/app/hf_cache
 # RUN huggingface-cli download meituan-longcat/LongCat-Video --local-dir /app/weights/LongCat-Video
-
-# Handler kopieren (aus serverless/ Unterverzeichnis)
-COPY serverless/handler.py .
 
 # Runpod erwartet handler.py im Root
 ENV PYTHONUNBUFFERED=1
