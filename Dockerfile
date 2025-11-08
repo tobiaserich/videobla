@@ -28,15 +28,11 @@ RUN pip install --no-cache-dir \
     scipy>=1.11.0
 
 # LongCat-Video Repository clonen und installieren
+# Cache-Break: Verwende --no-cache beim Build wenn du neu clonen willst
 RUN rm -rf /app/LongCat-Video && \
-    git clone https://github.com/meituan-longcat/LongCat-Video.git /app/LongCat-Video && \
+    git clone --depth 1 https://github.com/meituan-longcat/LongCat-Video.git /app/LongCat-Video && \
     cd /app/LongCat-Video && \
     pip install --no-cache-dir --ignore-installed blinker -r requirements.txt
-
-# LongCat-Video Repository clonen und installieren
-RUN git clone https://github.com/meituan-longcat/LongCat-Video.git /app/LongCat-Video && \
-    cd /app/LongCat-Video && \
-    pip install --no-cache-dir -r requirements.txt
 
 # Model weights OPTIONAL vorab herunterladen (spart Zeit beim ersten Start)
 # WARNUNG: Das macht das Image ~30GB größer!
