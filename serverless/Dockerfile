@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 
 # Python Dependencies installieren (ohne torch - ist schon im Base Image!)
-COPY requirements.txt .
+# Direkt installieren ohne requirements.txt zu kopieren (vermeidet Build-Context Probleme)
 RUN pip install --no-cache-dir \
     diffusers>=0.30.0 \
     transformers>=4.40.0 \
