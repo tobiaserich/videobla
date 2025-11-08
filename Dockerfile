@@ -28,7 +28,8 @@ RUN pip install --no-cache-dir \
     scipy>=1.11.0
 
 # LongCat-Video Repository clonen und installieren
-RUN git clone https://github.com/meituan-longcat/LongCat-Video.git /app/LongCat-Video && \
+RUN rm -rf /app/LongCat-Video && \
+    git clone https://github.com/meituan-longcat/LongCat-Video.git /app/LongCat-Video && \
     cd /app/LongCat-Video && \
     pip install --no-cache-dir --ignore-installed blinker -r requirements.txt
 
