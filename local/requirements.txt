@@ -7,6 +7,11 @@ opencv-python>=4.8.0
 numpy>=1.24.0
 tqdm>=4.66.0
 
+# Standalone Server Dependencies
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+
 # Optional: für lokale Tests mit kleinen Modellen
 # torch>=2.1.0
 # diffusers>=0.25.0
