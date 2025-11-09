@@ -63,19 +63,20 @@ def load_model():
             has_longcat = False
         
         if has_longcat:
-            model_path = os.getenv("MODEL_PATH", "/app/weights/LongCat-Video")
+            # Model-ID auf HuggingFace
+            model_id = "meituan-longcat/LongCat-Video"
+            cache_dir = os.getenv("HF_HOME", "/runpod-volume")  # Runpod volume für persistence
             
-            if not os.path.exists(model_path):
-                print(f"⚠️  Model path not found: {model_path}")
-                print("   Falling back to DUMMY mode")
-                has_longcat = False
-            else:
-                print(f"Loading model from: {model_path}")
-                
-                # Model laden
+            print(f"Downloading/Loading model: {model_id}")
+            print(f"Cache directory: {cache_dir}")
+            
+            try:
+                # Model direkt von HuggingFace laden (cached automatisch)
                 MODEL = LongCatVideoPipeline.from_pretrained(
-                    model_path,
+                    model_id,
+                    cache_dir=cache_dir,
                     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                    local_files_only=False,  # Erlaubt Download wenn nicht gecached
                 ).to(DEVICE)
                 
                 # Optional: Compile für schnellere Inference
@@ -86,8 +87,13 @@ def load_model():
                 print(f"✅ LongCat-Video loaded successfully!")
                 print(f"   Device: {DEVICE}")
                 print(f"   Model type: {type(MODEL)}")
+                print(f"   Cache: {cache_dir}")
                 
                 return MODEL
+            except Exception as e:
+                print(f"❌ Error loading model: {e}")
+                print("   Falling back to DUMMY mode")
+                has_longcat = False
         
         # Fallback: Dummy Model
         print("📦 Using DUMMY mode for testing")

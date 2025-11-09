@@ -37,11 +37,17 @@ RUN rm -rf /app/LongCat-Video && \
 # Handler kopieren (NACH git clone, damit Code-Änderungen den Cache brechen!)
 COPY serverless/handler.py .
 
+# Environment für HuggingFace Cache
+# Runpod Network Storage wird unter /runpod-volume gemountet
+ENV HF_HOME=/runpod-volume/huggingface
+ENV TRANSFORMERS_CACHE=/runpod-volume/huggingface/transformers
+ENV DIFFUSERS_CACHE=/runpod-volume/huggingface/diffusers
+
 # Model weights OPTIONAL vorab herunterladen (spart Zeit beim ersten Start)
 # WARNUNG: Das macht das Image ~30GB größer!
 # Auskommentieren wenn du das Model zur Build-Zeit laden willst:
-# ENV HF_HOME=/app/hf_cache
-# RUN huggingface-cli download meituan-longcat/LongCat-Video --local-dir /app/weights/LongCat-Video
+# RUN pip install --no-cache-dir huggingface_hub && \
+#     huggingface-cli download meituan-longcat/LongCat-Video --cache-dir /app/hf_cache
 
 # Runpod erwartet handler.py im Root
 ENV PYTHONUNBUFFERED=1
