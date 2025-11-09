@@ -290,19 +290,40 @@ def generate_video(
         raise
 
 
-def upload_to_storage(video_path: str) -> str:
+def upload_to_storage(video_path: str) -> Dict[str, str]:
     """
-    Upload Video zu Storage (placeholder)
+    Upload Video zu Storage oder encode als base64
     
-    TODO: Implement S3/R2/etc upload
-    For now: return local path (Runpod has built-in file serving)
+    Für Testing: Encode als base64 und zurückgeben
+    Für Production: Upload zu S3/R2 und return URL
     """
     
-    # Option 1: Runpod Network Volume
-    # Option 2: S3/R2 Upload
-    # Option 3: Return local path (works for testing)
+    # Check file size
+    file_size = os.path.getsize(video_path)
+    print(f"Video size: {file_size / 1024 / 1024:.2f} MB")
     
-    return f"file://{video_path}"
+    # Option 1: Base64 encode (gut für kleine Videos, <10MB)
+    if file_size < 10 * 1024 * 1024:  # < 10MB
+        print("Encoding video as base64...")
+        with open(video_path, "rb") as f:
+            video_bytes = f.read()
+            video_b64 = base64.b64encode(video_bytes).decode('utf-8')
+        
+        return {
+            "type": "base64",
+            "data": video_b64,
+            "filename": os.path.basename(video_path)
+        }
+    
+    # Option 2: File path (für große Videos)
+    # TODO: Implement S3/R2 upload für Production
+    else:
+        print("⚠️  Video too large for base64, returning file path")
+        return {
+            "type": "file",
+            "path": video_path,
+            "message": "Video too large - implement S3 upload for production"
+        }
 
 
 def handler(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -354,12 +375,12 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         # Video uploaden
-        video_url = upload_to_storage(result["video_path"])
+        video_result = upload_to_storage(result["video_path"])
         
         execution_time = time.time() - start_time
         
         output = {
-            "video_url": video_url,
+            "video": video_result,
             "metadata": {
                 "task": task,
                 "prompt": prompt,

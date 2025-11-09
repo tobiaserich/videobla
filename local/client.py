@@ -124,12 +124,28 @@ class RunpodClient:
             
             status = status_data.get("status")
             
-            if status == "COMPLETED":
+            elif status == "COMPLETED":
                 output = status_data.get("output", {})
                 print(f"✨ Video generiert!")
-                print(f"   Video URL: {output.get('video_url', 'N/A')}")
-                print(f"   Execution Time: {output.get('execution_time', 'N/A')}s")
-                return output
+                
+                # Handle different video formats
+                video_data = output.get('video', {})
+                if isinstance(video_data, dict):
+                    if video_data.get('type') == 'base64':
+                        print(f"   Format: base64 encoded")
+                        print(f"   Execution Time: {output.get('execution_time', 'N/A')}s")
+                        return output
+                    elif video_data.get('type') == 'file':
+                        print(f"   Format: file path")
+                        print(f"   Path: {video_data.get('path', 'N/A')}")
+                        print(f"   Execution Time: {output.get('execution_time', 'N/A')}s")
+                        return output
+                else:
+                    # Legacy: video_url
+                    video_url = output.get('video_url', 'N/A')
+                    print(f"   Video URL: {video_url}")
+                    print(f"   Execution Time: {output.get('execution_time', 'N/A')}s")
+                    return output
             
             elif status == "FAILED":
                 error = status_data.get("error", "Unknown error")
@@ -144,23 +160,57 @@ class RunpodClient:
                 print(f"   Unknown status: {status}")
                 time.sleep(2)
     
-    def download_video(self, video_url: str, output_path: str = "output.mp4"):
-        """Video von URL herunterladen"""
+    def download_video(self, result: Dict[str, Any], output_path: str = "output.mp4"):
+        """Video von Result herunterladen (base64 oder URL)"""
         
-        print(f"⬇️  Downloading video to {output_path}...")
+        print(f"⬇️  Saving video to {output_path}...")
         
-        response = requests.get(video_url, stream=True, timeout=60)
-        response.raise_for_status()
+        video_data = result.get('video', {})
         
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        # Base64 encoded video
+        if isinstance(video_data, dict) and video_data.get('type') == 'base64':
+            import base64
+            
+            video_b64 = video_data.get('data')
+            if not video_b64:
+                raise ValueError("No base64 data in result")
+            
+            video_bytes = base64.b64decode(video_b64)
+            
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(output_path, "wb") as f:
+                f.write(video_bytes)
+            
+            print(f"✅ Video saved to: {output_path.absolute()}")
+            return output_path
         
-        with open(output_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+        # Legacy: URL download
+        elif 'video_url' in result:
+            video_url = result['video_url']
+            
+            if video_url.startswith('file://'):
+                print("⚠️  Video is on remote server (file:// path)")
+                print("   Cannot download - implement S3 upload for production")
+                return None
+            
+            response = requests.get(video_url, stream=True, timeout=60)
+            response.raise_for_status()
+            
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(output_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            print(f"✅ Video saved to: {output_path.absolute()}")
+            return output_path
         
-        print(f"✅ Video saved to: {output_path.absolute()}")
-        return output_path
+        else:
+            print("⚠️  No video data in result")
+            return None
 
 
 def main():
@@ -193,12 +243,8 @@ def main():
             video_path=args.video
         )
         
-        # Video herunterladen
-        if "video_url" in result:
-            client.download_video(result["video_url"], args.output)
-        else:
-            print("⚠️  No video URL in result")
-            print(json.dumps(result, indent=2))
+        # Video herunterladen/speichern
+        client.download_video(result, args.output)
         
     except Exception as e:
         print(f"❌ Error: {e}", file=sys.stderr)
