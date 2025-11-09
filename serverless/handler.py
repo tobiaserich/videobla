@@ -58,8 +58,12 @@ def load_model():
         # LongCat-Video importieren - korrekter Import-Pfad!
         try:
             from longcat_video.pipeline_longcat_video import LongCatVideoPipeline
+            from longcat_video.modules.autoencoder_kl_wan import AutoencoderKLWan
+            from longcat_video.modules.longcat_video_dit import LongCatVideoTransformer3DModel
+            from longcat_video.modules.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
+            from transformers import AutoTokenizer, UMT5EncoderModel
             has_longcat = True
-            print("✅ LongCat-Video module imported successfully")
+            print("✅ LongCat-Video modules imported successfully")
         except ImportError as e:
             print(f"⚠️  LongCat-Video module not found: {e}")
             print("   Falling back to DUMMY mode")
@@ -74,12 +78,55 @@ def load_model():
             print(f"Cache directory: {cache_dir}")
             
             try:
-                # Model direkt von HuggingFace laden
-                MODEL = LongCatVideoPipeline.from_pretrained(
+                # Komponenten einzeln laden (wie im Demo-Script)
+                print("Loading tokenizer...")
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model_id, 
+                    subfolder="tokenizer",
+                    cache_dir=cache_dir
+                )
+                
+                print("Loading text encoder...")
+                text_encoder = UMT5EncoderModel.from_pretrained(
                     model_id,
-                    cache_dir=cache_dir,
+                    subfolder="text_encoder",
                     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                ).to(DEVICE)
+                    cache_dir=cache_dir
+                )
+                
+                print("Loading VAE...")
+                vae = AutoencoderKLWan.from_pretrained(
+                    model_id,
+                    subfolder="vae",
+                    torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                    cache_dir=cache_dir
+                )
+                
+                print("Loading scheduler...")
+                scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                    model_id,
+                    subfolder="scheduler",
+                    cache_dir=cache_dir
+                )
+                
+                print("Loading DiT transformer...")
+                dit = LongCatVideoTransformer3DModel.from_pretrained(
+                    model_id,
+                    subfolder="dit",
+                    torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                    cache_dir=cache_dir
+                )
+                
+                # Pipeline zusammenbauen
+                print("Assembling pipeline...")
+                MODEL = LongCatVideoPipeline(
+                    tokenizer=tokenizer,
+                    text_encoder=text_encoder,
+                    vae=vae,
+                    scheduler=scheduler,
+                    dit=dit,
+                )
+                MODEL.to(DEVICE)
                 
                 # Optional: Compile für schnellere Inference
                 if os.getenv("ENABLE_COMPILE", "false").lower() == "true":
@@ -128,15 +175,16 @@ def generate_video_real(model, prompt, task, duration, width, height, fps, **kwa
     print(f"🎬 Generating with real LongCat-Video model...")
     print(f"   Frames: {total_frames}, Size: {width}x{height}, FPS: {fps}")
     
+    # LongCat-Video nutzt spezielle generate-Methoden
     if task == "text_to_video":
-        output = model(
+        output = model.generate_t2v(
             prompt=prompt,
-            num_frames=total_frames,
+            negative_prompt=kwargs.get("negative_prompt", ""),
             height=height,
             width=width,
-            fps=fps,
-            guidance_scale=float(kwargs.get("guidance_scale", 7.5)),
+            num_frames=total_frames,
             num_inference_steps=int(kwargs.get("num_inference_steps", 50)),
+            guidance_scale=float(kwargs.get("guidance_scale", 4.0)),
         )
     
     elif task == "image_to_video":
@@ -147,15 +195,15 @@ def generate_video_real(model, prompt, task, duration, width, height, fps, **kwa
         from PIL import Image
         image = Image.open(image_path)
         
-        output = model(
+        output = model.generate_i2v(
             prompt=prompt,
             image=image,
-            num_frames=total_frames,
+            negative_prompt=kwargs.get("negative_prompt", ""),
             height=height,
             width=width,
-            fps=fps,
-            guidance_scale=float(kwargs.get("guidance_scale", 7.5)),
+            num_frames=total_frames,
             num_inference_steps=int(kwargs.get("num_inference_steps", 50)),
+            guidance_scale=float(kwargs.get("guidance_scale", 4.0)),
         )
     
     elif task == "video_continuation":
@@ -163,21 +211,15 @@ def generate_video_real(model, prompt, task, duration, width, height, fps, **kwa
         if not video_path:
             raise ValueError("video_path required for video_continuation")
         
-        output = model(
-            prompt=prompt,
-            video=video_path,
-            num_frames=total_frames,
-            height=height,
-            width=width,
-            fps=fps,
-            guidance_scale=float(kwargs.get("guidance_scale", 7.5)),
-            num_inference_steps=int(kwargs.get("num_inference_steps", 50)),
-        )
+        # TODO: Implementiere video continuation
+        # Braucht spezielle Video-Loading-Logik
+        raise NotImplementedError("Video continuation not yet implemented")
     
     else:
         raise ValueError(f"Unknown task: {task}")
     
-    return output
+    # Output ist eine Liste von frames
+    return output[0] if isinstance(output, list) else output
 
 
 def generate_video_dummy(prompt, task, duration, width, height, fps):
@@ -257,13 +299,20 @@ def generate_video(
         
         if not is_dummy:
             # ECHTE LongCat-Video Generation
-            output = generate_video_real(
+            output_frames = generate_video_real(
                 model, prompt, task, duration, width, height, fps, **kwargs
             )
             
-            # Video speichern
+            # Video speichern (output_frames ist numpy array)
+            import numpy as np
+            from torchvision.io import write_video
+            
             output_path = output_dir / f"video_{task}_{int(time.time())}.mp4"
-            output.save(str(output_path))
+            
+            # Konvertiere zu Tensor und speichere
+            output_tensor = torch.from_numpy(np.array(output_frames))
+            output_tensor = (output_tensor * 255).clamp(0, 255).to(torch.uint8)
+            write_video(str(output_path), output_tensor, fps=fps, video_codec="libx264", options={"crf": "18"})
             
             print(f"✅ Real video generated: {output_path}")
             
