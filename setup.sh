@@ -94,7 +94,7 @@ else
     info "LongCat-Video repository already exists"
 fi
 
-# LongCat Dependencies (ohne flash-attn wenn es Probleme gibt)
+# LongCat Dependencies
 cd LongCat-Video
 info "Installing LongCat-Video core dependencies..."
 pip install -q loguru ftfy regex hf-transfer  # Wichtige Dependencies
@@ -102,9 +102,19 @@ pip install -q loguru ftfy regex hf-transfer  # Wichtige Dependencies
 if pip install -r requirements.txt 2>/dev/null; then
     info "LongCat-Video dependencies installed"
 else
-    warn "Some dependencies failed, installing without flash-attn..."
+    warn "Some dependencies failed, installing core packages..."
     grep -v "flash-attn" requirements.txt > requirements_safe.txt
     pip install -r requirements_safe.txt -q
+fi
+
+# Flash-attention separat installieren (braucht CUDA und kann lange dauern)
+if [ "$HAS_GPU" = true ]; then
+    info "Installing flash-attn (this may take several minutes)..."
+    if pip install flash-attn --no-build-isolation 2>&1 | grep -q "Successfully installed"; then
+        info "flash-attn installed successfully"
+    else
+        warn "flash-attn installation failed - will use slower attention fallback"
+    fi
 fi
 cd ..
 
