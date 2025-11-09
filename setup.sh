@@ -97,7 +97,7 @@ fi
 # LongCat Dependencies (ohne flash-attn wenn es Probleme gibt)
 cd LongCat-Video
 info "Installing LongCat-Video core dependencies..."
-pip install -q loguru ftfy regex  # Wichtige Dependencies die fehlen könnten
+pip install -q loguru ftfy regex hf-transfer  # Wichtige Dependencies
 
 if pip install -r requirements.txt 2>/dev/null; then
     info "LongCat-Video dependencies installed"
