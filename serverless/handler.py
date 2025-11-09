@@ -120,14 +120,18 @@ def load_model():
                     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
                     cache_dir=cache_dir
                 )
-                # Defensive: some DiT checkpoints might not set cp_split_hw – ensure a safe default
-                try:
-                    cp = getattr(dit, "cp_split_hw", None)
-                    if cp is None:
-                        # default to no channel-parallel split
-                        dit.cp_split_hw = (1, 1)
-                except Exception:
-                    dit.cp_split_hw = (1, 1)
+                
+                # Defensive: recursively set cp_split_hw for all modules that need it
+                def set_cp_split_hw_recursive(module, value=(1, 1)):
+                    """Recursively set cp_split_hw to avoid NoneType errors in rope_3d and other modules."""
+                    if hasattr(module, 'cp_split_hw'):
+                        if module.cp_split_hw is None:
+                            module.cp_split_hw = value
+                    for child in module.children():
+                        set_cp_split_hw_recursive(child, value)
+                
+                print("Setting cp_split_hw defaults...")
+                set_cp_split_hw_recursive(dit)
                 
                 # Pipeline zusammenbauen
                 print("Assembling pipeline...")
