@@ -65,18 +65,18 @@ def load_model():
         if has_longcat:
             # Model-ID auf HuggingFace
             model_id = "meituan-longcat/LongCat-Video"
-            cache_dir = os.getenv("HF_HOME", "/runpod-volume")  # Runpod volume für persistence
+            cache_dir = os.getenv("HF_HOME", "/app/hf_cache")  # Im Container vorgeladen
             
-            print(f"Downloading/Loading model: {model_id}")
+            print(f"Loading model: {model_id}")
             print(f"Cache directory: {cache_dir}")
             
             try:
-                # Model direkt von HuggingFace laden (cached automatisch)
+                # Model direkt von HuggingFace laden (sollte gecached sein vom Build)
                 MODEL = LongCatVideoPipeline.from_pretrained(
                     model_id,
                     cache_dir=cache_dir,
                     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                    local_files_only=False,  # Erlaubt Download wenn nicht gecached
+                    local_files_only=True,  # Nur gecachte Files verwenden (kein Download zur Runtime)
                 ).to(DEVICE)
                 
                 # Optional: Compile für schnellere Inference
@@ -92,6 +92,7 @@ def load_model():
                 return MODEL
             except Exception as e:
                 print(f"❌ Error loading model: {e}")
+                traceback.print_exc()
                 print("   Falling back to DUMMY mode")
                 has_longcat = False
         
