@@ -124,13 +124,15 @@ class RunpodClient:
             
             status = status_data.get("status")
             
-            elif status == "COMPLETED":
+            if status == "COMPLETED":
                 output = status_data.get("output", {})
                 print(f"✨ Video generiert!")
                 
                 # Handle different video formats
                 video_data = output.get('video', {})
-                if isinstance(video_data, dict):
+                
+                # Check if new format (base64/file dict)
+                if isinstance(video_data, dict) and video_data.get('type'):
                     if video_data.get('type') == 'base64':
                         print(f"   Format: base64 encoded")
                         print(f"   Execution Time: {output.get('execution_time', 'N/A')}s")
@@ -140,11 +142,17 @@ class RunpodClient:
                         print(f"   Path: {video_data.get('path', 'N/A')}")
                         print(f"   Execution Time: {output.get('execution_time', 'N/A')}s")
                         return output
-                else:
-                    # Legacy: video_url
+                
+                # Legacy format: video_url field directly in output
+                elif 'video_url' in output:
                     video_url = output.get('video_url', 'N/A')
-                    print(f"   Video URL: {video_url}")
+                    print(f"   Video URL (legacy): {video_url}")
                     print(f"   Execution Time: {output.get('execution_time', 'N/A')}s")
+                    return output
+                
+                else:
+                    # Unknown format
+                    print(f"   ⚠️  Unknown output format: {output}")
                     return output
             
             elif status == "FAILED":
