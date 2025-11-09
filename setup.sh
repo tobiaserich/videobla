@@ -16,6 +16,13 @@ info() { echo -e "${GREEN}✓${NC} $1"; }
 warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 error() { echo -e "${RED}✗${NC} $1"; }
 
+# Detect if we should use system PyTorch (for servers with pre-installed torch)
+USE_SYSTEM_TORCH=false
+if python3 -c "import torch; print(torch.__version__)" 2>/dev/null | grep -q "2.8"; then
+    info "Detected system PyTorch 2.8+ - will use system-site-packages"
+    USE_SYSTEM_TORCH=true
+fi
+
 # 1. System-Check
 echo "1️⃣  Checking system requirements..."
 
@@ -50,10 +57,27 @@ fi
 echo ""
 echo "2️⃣  Setting up Python environment..."
 
+# HuggingFace Cache-Verzeichnis konfigurieren (wichtig für /workspace!)
+if [ -d "/workspace" ] && [ ! -d "/workspace/.cache" ]; then
+    info "Setting up HuggingFace cache in /workspace..."
+    mkdir -p /workspace/.cache/huggingface
+    export HF_HOME=/workspace/.cache/huggingface
+    info "HF_HOME set to /workspace/.cache/huggingface"
+elif [ -d "/workspace/.cache/huggingface" ]; then
+    export HF_HOME=/workspace/.cache/huggingface
+    info "Using existing HF cache at /workspace/.cache/huggingface"
+fi
+
 # Virtual Environment erstellen
 if [ ! -d "venv" ]; then
     info "Creating virtual environment..."
-    python3 -m venv venv
+    if [ "$USE_SYSTEM_TORCH" = true ]; then
+        python3 -m venv venv --system-site-packages
+        info "Created venv with --system-site-packages (using system PyTorch)"
+    else
+        python3 -m venv venv
+        info "Created isolated venv"
+    fi
 else
     info "Virtual environment already exists"
 fi
@@ -68,13 +92,16 @@ echo "3️⃣  Installing dependencies..."
 # Upgrade pip
 pip install --upgrade pip -q
 
-# PyTorch installieren (GPU oder CPU)
-if [ "$HAS_GPU" = true ]; then
-    info "Installing PyTorch 2.5.1 with CUDA support..."
-    pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121 -q
+# PyTorch installieren (nur wenn nicht system-site-packages)
+if [ "$USE_SYSTEM_TORCH" = true ]; then
+    info "Using system PyTorch (already installed)"
+    python3 -c "import torch; print(f'  PyTorch {torch.__version__}')"
+elif [ "$HAS_GPU" = true ]; then
+    info "Installing PyTorch with CUDA support..."
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 -q
 else
-    warn "Installing PyTorch 2.5.1 CPU-only version..."
-    pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 -q
+    warn "Installing PyTorch CPU-only version..."
+    pip install torch torchvision torchaudio -q
 fi
 
 # Basis-Dependencies
@@ -82,6 +109,10 @@ info "Installing base dependencies..."
 cd serverless
 pip install -r requirements.txt -q
 cd ..
+
+# Wichtige zusätzliche Packages (die oft fehlen)
+info "Installing additional required packages..."
+pip install -q runpod loguru ftfy regex opencv-python-headless hf-transfer transformers safetensors
 
 echo ""
 echo "4️⃣  Setting up LongCat-Video..."
@@ -97,24 +128,31 @@ fi
 # LongCat Dependencies
 cd LongCat-Video
 info "Installing LongCat-Video core dependencies..."
-pip install -q loguru ftfy regex hf-transfer  # Wichtige Dependencies
 
-if pip install -r requirements.txt 2>/dev/null; then
-    info "LongCat-Video dependencies installed"
-else
-    warn "Some dependencies failed, installing core packages..."
+# Installiere Requirements ohne flash-attn (das kommt später)
+if grep -q "flash-attn" requirements.txt; then
     grep -v "flash-attn" requirements.txt > requirements_safe.txt
-    pip install -r requirements_safe.txt -q
+    pip install -r requirements_safe.txt -q 2>&1 | grep -v "already satisfied" || true
+    rm requirements_safe.txt
+else
+    pip install -r requirements.txt -q 2>&1 | grep -v "already satisfied" || true
 fi
 
 # Flash-attention separat installieren (braucht CUDA und kann lange dauern)
 if [ "$HAS_GPU" = true ]; then
-    info "Installing flash-attn (this may take several minutes)..."
-    if pip install flash-attn --no-build-isolation 2>&1 | grep -q "Successfully installed"; then
+    info "Installing flash-attn (this may take 3-5 minutes to compile)..."
+    if pip install flash-attn --no-build-isolation 2>&1 | tee /tmp/flash_install.log | tail -1 | grep -q "Successfully installed"; then
         info "flash-attn installed successfully"
     else
-        warn "flash-attn installation failed - will use slower attention fallback"
+        if grep -q "Successfully installed flash-attn" /tmp/flash_install.log; then
+            info "flash-attn installed successfully"
+        else
+            warn "flash-attn installation failed - will use slower attention fallback"
+        fi
     fi
+    rm -f /tmp/flash_install.log
+else
+    warn "Skipping flash-attn (no GPU detected)"
 fi
 cd ..
 
@@ -124,14 +162,45 @@ echo "5️⃣  Environment configuration..."
 # .env erstellen falls nicht vorhanden
 if [ ! -f ".env" ]; then
     info "Creating .env file from template..."
-    cp .env.example .env
+    if [ -f ".env.example" ]; then
+        cp .env.example .env
+    else
+        # Fallback: Minimale .env erstellen
+        cat > .env << EOF
+# RunPod Configuration
+RUNPOD_API_KEY=your_api_key_here
+
+# Model Settings
+HF_HUB_ENABLE_HF_TRANSFER=1
+HF_HOME=${HF_HOME:-/workspace/.cache/huggingface}
+
+# Server Settings
+PORT=8000
+HOST=0.0.0.0
+EOF
+    fi
     warn "Please edit .env and add your RUNPOD_API_KEY!"
 else
     info ".env file already exists"
 fi
 
+# Environment Variablen in .bashrc oder .profile setzen (für persistente Session)
+if [ -d "/workspace" ]; then
+    if ! grep -q "HF_HOME" ~/.bashrc 2>/dev/null; then
+        echo "" >> ~/.bashrc
+        echo "# HuggingFace Cache Configuration" >> ~/.bashrc
+        echo "export HF_HOME=/workspace/.cache/huggingface" >> ~/.bashrc
+        echo "export HF_HUB_ENABLE_HF_TRANSFER=1" >> ~/.bashrc
+        info "Added HF environment variables to ~/.bashrc"
+    fi
+fi
+
 # Python Path für LongCat-Video
 export PYTHONPATH="${PYTHONPATH}:$(pwd)/LongCat-Video"
+if ! grep -q "LongCat-Video" ~/.bashrc 2>/dev/null; then
+    echo "export PYTHONPATH=\"\${PYTHONPATH}:$(pwd)/LongCat-Video\"" >> ~/.bashrc
+    info "Added PYTHONPATH to ~/.bashrc"
+fi
 info "PYTHONPATH configured"
 
 echo ""
@@ -144,7 +213,25 @@ print(f'✓ PyTorch {torch.__version__}')
 print(f'✓ CUDA available: {torch.cuda.is_available()}')
 if torch.cuda.is_available():
     print(f'✓ CUDA device: {torch.cuda.get_device_name(0)}')
+    print(f'✓ CUDA version: {torch.version.cuda}')
 " && info "PyTorch test passed"
+
+# Test kritische Imports
+python3 -c "
+import sys
+sys.path.insert(0, 'LongCat-Video')
+try:
+    from longcat_video.pipeline_longcat_video import LongCatVideoPipeline
+    print('✓ LongCat-Video imports working')
+except Exception as e:
+    print(f'⚠ LongCat-Video import warning: {e}')
+
+try:
+    import flash_attn
+    print('✓ flash-attn available')
+except:
+    print('⚠ flash-attn not available (slower fallback will be used)')
+" 2>&1
 
 echo ""
 echo "=============================="
@@ -152,8 +239,29 @@ echo "🎉 Setup complete!"
 echo ""
 echo "Next steps:"
 echo "  1. Activate environment: source venv/bin/activate"
-echo "  2. Configure .env file with your API keys"
-echo "  3. Run client: python local/client.py --prompt 'test'"
+if [ ! -f ".env" ] || grep -q "your_api_key_here" .env 2>/dev/null; then
+    echo "  2. Configure .env file with your RUNPOD_API_KEY"
+fi
+echo "  3. Start server: ./start_server.sh"
+echo "     OR"
+echo "     python standalone_server.py"
+echo ""
+echo "Test endpoint after starting server:"
+echo "  curl -X POST http://localhost:8000/generate \\"
+echo "    -H 'Content-Type: application/json' \\"
+echo "    -d '{\"prompt\":\"a cat\",\"height\":384,\"width\":384,\"num_frames\":4,\"num_inference_steps\":10,\"guidance_scale\":3.0}'"
+echo ""
+
+if [ "$HAS_GPU" = false ]; then
+    warn "No GPU detected! Video generation will be VERY slow."
+    echo "   Consider using Runpod serverless instead"
+fi
+
+if [ -d "/workspace" ]; then
+    info "Running in /workspace - HuggingFace cache configured for large storage"
+fi
+
+echo ""
 echo "  4. Or run local server: python standalone_server.py"
 echo ""
 
