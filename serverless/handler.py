@@ -120,6 +120,14 @@ def load_model():
                     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
                     cache_dir=cache_dir
                 )
+                # Defensive: some DiT checkpoints might not set cp_split_hw – ensure a safe default
+                try:
+                    cp = getattr(dit, "cp_split_hw", None)
+                    if cp is None:
+                        # default to no channel-parallel split
+                        dit.cp_split_hw = (1, 1)
+                except Exception:
+                    dit.cp_split_hw = (1, 1)
                 
                 # Pipeline zusammenbauen
                 print("Assembling pipeline...")
