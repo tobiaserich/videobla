@@ -14,6 +14,9 @@ import traceback
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+# Deaktiviere hf_transfer - kann bei großen Downloads Probleme machen
+os.environ.pop('HF_HUB_ENABLE_HF_TRANSFER', None)
+
 import torch
 import runpod
 
@@ -72,7 +75,8 @@ def load_model():
         if has_longcat:
             # Model-ID auf HuggingFace
             model_id = "meituan-longcat/LongCat-Video"
-            cache_dir = os.getenv("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+            # Bevorzuge /workspace (hat mehr Platz auf Runpod)
+            cache_dir = os.getenv("HF_HOME", "/workspace/.cache/huggingface" if os.path.exists("/workspace") else os.path.expanduser("~/.cache/huggingface"))
             
             print(f"Loading model: {model_id}")
             print(f"Cache directory: {cache_dir}")
