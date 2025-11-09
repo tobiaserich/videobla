@@ -70,11 +70,11 @@ pip install --upgrade pip -q
 
 # PyTorch installieren (GPU oder CPU)
 if [ "$HAS_GPU" = true ]; then
-    info "Installing PyTorch with CUDA support..."
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 -q
+    info "Installing PyTorch 2.5.1 with CUDA support..."
+    pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121 -q
 else
-    warn "Installing PyTorch CPU-only version..."
-    pip install torch torchvision torchaudio -q
+    warn "Installing PyTorch 2.5.1 CPU-only version..."
+    pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 -q
 fi
 
 # Basis-Dependencies
@@ -96,6 +96,9 @@ fi
 
 # LongCat Dependencies (ohne flash-attn wenn es Probleme gibt)
 cd LongCat-Video
+info "Installing LongCat-Video core dependencies..."
+pip install -q loguru ftfy regex  # Wichtige Dependencies die fehlen könnten
+
 if pip install -r requirements.txt 2>/dev/null; then
     info "LongCat-Video dependencies installed"
 else

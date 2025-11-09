@@ -47,14 +47,17 @@ def load_model():
     # LongCat-Video laden
     try:
         # LongCat-Video Repository zum Python Path hinzufügen
-        longcat_repo_path = "/app/LongCat-Video"
+        longcat_repo_path = os.path.join(os.path.dirname(__file__), "..", "LongCat-Video")
+        if not os.path.exists(longcat_repo_path):
+            longcat_repo_path = "/app/LongCat-Video"  # Docker path
+        
         if os.path.exists(longcat_repo_path):
             sys.path.insert(0, longcat_repo_path)
             print(f"Added {longcat_repo_path} to Python path")
         
-        # LongCat-Video importieren
+        # LongCat-Video importieren - korrekter Import-Pfad!
         try:
-            from longcat_video import LongCatVideoPipeline
+            from longcat_video.pipeline_longcat_video import LongCatVideoPipeline
             has_longcat = True
             print("✅ LongCat-Video module imported successfully")
         except ImportError as e:
@@ -65,18 +68,17 @@ def load_model():
         if has_longcat:
             # Model-ID auf HuggingFace
             model_id = "meituan-longcat/LongCat-Video"
-            cache_dir = os.getenv("HF_HOME", "/app/hf_cache")  # Im Container vorgeladen
+            cache_dir = os.getenv("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
             
             print(f"Loading model: {model_id}")
             print(f"Cache directory: {cache_dir}")
             
             try:
-                # Model direkt von HuggingFace laden (sollte gecached sein vom Build)
+                # Model direkt von HuggingFace laden
                 MODEL = LongCatVideoPipeline.from_pretrained(
                     model_id,
                     cache_dir=cache_dir,
                     torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                    local_files_only=True,  # Nur gecachte Files verwenden (kein Download zur Runtime)
                 ).to(DEVICE)
                 
                 # Optional: Compile für schnellere Inference
