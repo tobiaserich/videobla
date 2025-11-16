@@ -74,10 +74,20 @@ class FakeFlashAttnModule:
     flash_attn_func = staticmethod(flash_attn_func)
     flash_attn_varlen_func = staticmethod(flash_attn_varlen_func)
     __version__ = "fallback-0.0.0"
+    __spec__ = None  # Explicitly set __spec__ to prevent importlib errors
 
 
 def install_fallback():
     """Install the fallback by adding it to sys.modules"""
     import sys
-    sys.modules['flash_attn'] = FakeFlashAttnModule()
+    import importlib.util
+    
+    # Create a proper module spec to avoid "flash_attn.__spec__ is not set" error
+    fake_module = FakeFlashAttnModule()
+    
+    # Create a ModuleSpec for the fake module
+    spec = importlib.util.spec_from_loader("flash_attn", loader=None)
+    fake_module.__spec__ = spec
+    
+    sys.modules['flash_attn'] = fake_module
     print("⚠️  flash-attn not found - using PyTorch fallback (slower but works)")

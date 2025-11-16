@@ -18,14 +18,25 @@ from typing import Dict, Any, Optional
 os.environ.pop('HF_HUB_ENABLE_HF_TRANSFER', None)
 
 # Flash-attn Fallback installieren BEVOR irgendwas anderes importiert wird
+# Dies muss passieren BEVOR diffusers geladen wird, da diffusers beim Import
+# versucht flash_attn zu finden und dabei __spec__ überprüft
 try:
-    import flash_attn
-    print("✅ flash-attn found")
-except (ImportError, ValueError) as e:
+    import importlib.util
+    
+    # Versuche zuerst, flash_attn normal zu importieren
+    flash_spec = importlib.util.find_spec("flash_attn")
+    if flash_spec is not None and flash_spec.loader is not None:
+        import flash_attn
+        # Stelle sicher, dass __spec__ gesetzt ist
+        if not hasattr(flash_attn, '__spec__') or flash_attn.__spec__ is None:
+            flash_attn.__spec__ = flash_spec
+        print("✅ flash-attn found and properly configured")
+    else:
+        raise ImportError("flash_attn not found")
+except (ImportError, ValueError, AttributeError) as e:
     print(f"⚠️  flash-attn not available ({e}), installing fallback...")
     try:
         # Importiere und installiere Fallback ins sys.modules
-        import importlib.util
         spec = importlib.util.spec_from_file_location(
             "flash_attn_fallback", 
             os.path.join(os.path.dirname(__file__), "flash_attn_fallback.py")
@@ -36,6 +47,7 @@ except (ImportError, ValueError) as e:
         print("✅ flash-attn fallback installed")
     except Exception as fallback_err:
         print(f"❌ Could not install fallback: {fallback_err}")
+        traceback.print_exc()
 
 import torch
 import runpod
