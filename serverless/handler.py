@@ -17,15 +17,25 @@ from typing import Dict, Any, Optional
 # Deaktiviere hf_transfer - kann bei großen Downloads Probleme machen
 os.environ.pop('HF_HUB_ENABLE_HF_TRANSFER', None)
 
-# Flash-attn Fallback installieren falls nicht verfügbar
+# Flash-attn Fallback installieren BEVOR irgendwas anderes importiert wird
 try:
     import flash_attn
-except ImportError:
+    print("✅ flash-attn found")
+except (ImportError, ValueError) as e:
+    print(f"⚠️  flash-attn not available ({e}), installing fallback...")
     try:
-        from flash_attn_fallback import install_fallback
-        install_fallback()
-    except ImportError:
-        print("⚠️  flash-attn fallback not available")
+        # Importiere und installiere Fallback ins sys.modules
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "flash_attn_fallback", 
+            os.path.join(os.path.dirname(__file__), "flash_attn_fallback.py")
+        )
+        fallback_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fallback_module)
+        fallback_module.install_fallback()
+        print("✅ flash-attn fallback installed")
+    except Exception as fallback_err:
+        print(f"❌ Could not install fallback: {fallback_err}")
 
 import torch
 import runpod
