@@ -62,6 +62,9 @@ torch_minor = '.'.join(torch_ver.split('.')[:2])
 tv_minor = '.'.join(tv_ver.split('.')[:2])
 
 compat_map = {
+    '2.8': '0.23',  # PyTorch 2.8 + CUDA 12.8
+    '2.7': '0.22',
+    '2.6': '0.21',
     '2.5': '0.20',
     '2.4': '0.19',
     '2.3': '0.18',

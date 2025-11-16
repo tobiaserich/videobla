@@ -115,9 +115,13 @@ torch_ver = torch.__version__.split('+')[0]
 tv_ver = torchvision.__version__.split('+')[0]
 
 # Expected compatibility (torch major.minor -> torchvision major.minor)
+# Source: https://github.com/pytorch/vision#installation
 compat_map = {
-    '2.5': '0.20',
-    '2.4': '0.19',
+    '2.8': '0.23',  # PyTorch 2.8 (nightly/pre-release)
+    '2.7': '0.22',  # PyTorch 2.7 (nightly/pre-release)
+    '2.6': '0.21',  # PyTorch 2.6 (nightly/pre-release)
+    '2.5': '0.20',  # PyTorch 2.5 (stable)
+    '2.4': '0.19',  # PyTorch 2.4 (stable)
     '2.3': '0.18',
     '2.2': '0.17',
     '2.1': '0.16',
