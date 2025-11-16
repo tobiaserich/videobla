@@ -104,6 +104,58 @@ else
     pip install torch torchvision torchaudio -q
 fi
 
+# PyTorch/torchvision Kompatibilitätsprüfung
+info "Checking PyTorch/torchvision compatibility..."
+COMPAT_CHECK=$(python3 -c "
+import torch
+import torchvision
+import sys
+
+torch_ver = torch.__version__.split('+')[0]
+tv_ver = torchvision.__version__.split('+')[0]
+
+# Expected compatibility (torch major.minor -> torchvision major.minor)
+compat_map = {
+    '2.5': '0.20',
+    '2.4': '0.19',
+    '2.3': '0.18',
+    '2.2': '0.17',
+    '2.1': '0.16',
+}
+
+torch_minor = '.'.join(torch_ver.split('.')[:2])
+tv_minor = '.'.join(tv_ver.split('.')[:2])
+
+expected_tv = compat_map.get(torch_minor, tv_minor)
+
+if tv_minor != expected_tv:
+    print(f'MISMATCH|{torch_ver}|{tv_ver}|{expected_tv}')
+    sys.exit(1)
+else:
+    print(f'OK|{torch_ver}|{tv_ver}')
+    sys.exit(0)
+" 2>&1)
+
+if echo "$COMPAT_CHECK" | grep -q "MISMATCH"; then
+    TORCH_V=$(echo "$COMPAT_CHECK" | cut -d'|' -f2)
+    TV_V=$(echo "$COMPAT_CHECK" | cut -d'|' -f3)
+    EXPECTED_TV=$(echo "$COMPAT_CHECK" | cut -d'|' -f4)
+    
+    warn "Version mismatch detected!"
+    echo "  torch: $TORCH_V, torchvision: $TV_V (expected: $EXPECTED_TV)"
+    echo "  Fixing by reinstalling matching versions..."
+    
+    pip uninstall -y torch torchvision torchaudio
+    if [ "$HAS_GPU" = true ]; then
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 -q
+    else
+        pip install torch torchvision torchaudio -q
+    fi
+    info "PyTorch packages reinstalled with matching versions"
+else
+    info "PyTorch/torchvision versions compatible ✓"
+fi
+
 # Basis-Dependencies
 info "Installing base dependencies..."
 cd serverless
