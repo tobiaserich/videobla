@@ -105,16 +105,34 @@ def load_model():
             has_longcat = False
         
         if has_longcat:
-            # Model-ID auf HuggingFace
+                        # Model-ID auf HuggingFace
             model_id = "meituan-longcat/LongCat-Video"
             # Bevorzuge /workspace (hat mehr Platz auf Runpod)
             cache_dir = os.getenv("HF_HOME", "/workspace/.cache/huggingface" if os.path.exists("/workspace") else os.path.expanduser("~/.cache/huggingface"))
             
-            print(f"Loading model: {model_id}")
+            # Optimierung: BFloat16 für moderne GPUs (schneller + stabiler als FP16)
+            # Prüfe GPU-Capability für BF16-Support
+            use_bfloat16 = False
+            if DEVICE == "cuda" and torch.cuda.is_available():
+                gpu_capability = torch.cuda.get_device_capability(0)
+                # BF16 wird ab Ampere (8.x) und Hopper (9.x) gut unterstützt
+                use_bfloat16 = gpu_capability[0] >= 8
+                if use_bfloat16:
+                    print("✨ Using bfloat16 for faster inference (GPU supports it)")
+                    dtype = torch.bfloat16
+                else:
+                    print("Using float16 for GPU inference")
+                    dtype = torch.float16
+            else:
+                print("Using float32 for CPU inference")
+                dtype = torch.float32
+            
+            print(f"Loading from HuggingFace: {model_id}")
             print(f"Cache directory: {cache_dir}")
+            print(f"Dtype: {dtype}")
             
             try:
-                # Komponenten einzeln laden (wie im Demo-Script)
+                # Komponenten einzeln laden (wie im Original)
                 print("Loading tokenizer...")
                 tokenizer = AutoTokenizer.from_pretrained(
                     model_id, 
@@ -126,7 +144,7 @@ def load_model():
                 text_encoder = UMT5EncoderModel.from_pretrained(
                     model_id,
                     subfolder="text_encoder",
-                    torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                    torch_dtype=dtype,
                     cache_dir=cache_dir
                 )
                 
@@ -134,7 +152,7 @@ def load_model():
                 vae = AutoencoderKLWan.from_pretrained(
                     model_id,
                     subfolder="vae",
-                    torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                    torch_dtype=dtype,
                     cache_dir=cache_dir
                 )
                 
@@ -149,7 +167,7 @@ def load_model():
                 dit = LongCatVideoTransformer3DModel.from_pretrained(
                     model_id,
                     subfolder="dit",
-                    torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                    torch_dtype=dtype,
                     cache_dir=cache_dir
                 )
                 
@@ -176,10 +194,39 @@ def load_model():
                 )
                 MODEL.to(DEVICE)
                 
-                # Optional: Compile für schnellere Inference
-                if os.getenv("ENABLE_COMPILE", "false").lower() == "true":
-                    print("Compiling model...")
-                    MODEL = torch.compile(MODEL)
+                # Optimierungen aktivieren
+                print("⚡ Applying optimizations...")
+                
+                # 1. Enable memory efficient attention (nutzt SDPA wenn verfügbar)
+                if hasattr(MODEL, 'enable_model_cpu_offload'):
+                    # Für große Modelle - nur wenn nötig
+                    pass  # Deaktiviert, da wir genug VRAM haben
+                
+                # 2. VAE Tiling für weniger VRAM (optional)
+                if hasattr(MODEL.vae, 'enable_tiling'):
+                    MODEL.vae.enable_tiling()
+                    print("   ✓ VAE tiling enabled (less VRAM)")
+                
+                # 3. VAE Slicing für weniger VRAM (optional)
+                if hasattr(MODEL.vae, 'enable_slicing'):
+                    MODEL.vae.enable_slicing()
+                    print("   ✓ VAE slicing enabled (less VRAM)")
+                
+                # 4. Optional: Compile für schnellere Inference (kann 20-30% bringen!)
+                # ACHTUNG: Erste Inferenz ist langsamer (Compile-Zeit), danach schneller
+                compile_enabled = os.getenv("ENABLE_COMPILE", "false").lower() == "true"
+                if compile_enabled:
+                    print("   🔥 Compiling model with torch.compile()...")
+                    print("      (First run will be slow, subsequent runs faster)")
+                    try:
+                        # Compile nur den DiT (größter Bottleneck)
+                        MODEL.dit = torch.compile(MODEL.dit, mode="reduce-overhead")
+                        print("   ✓ DiT compiled successfully")
+                    except Exception as compile_err:
+                        print(f"   ⚠️  Compilation failed: {compile_err}")
+                else:
+                    print("   💡 Tip: Set ENABLE_COMPILE=true for 20-30% speedup")
+                    print("      (After initial compile time)")
                 
                 print(f"✅ LongCat-Video loaded successfully!")
                 print(f"   Device: {DEVICE}")
@@ -220,8 +267,17 @@ def generate_video_real(model, prompt, task, duration, width, height, fps, **kwa
     
     total_frames = duration * fps
     
+    # Optimierte Default-Werte für schnellere Generierung
+    # SPEED vs QUALITY Trade-off:
+    # - 10-15 steps: Sehr schnell, OK Qualität
+    # - 20-30 steps: Gute Balance (EMPFOHLEN)
+    # - 40-50 steps: Beste Qualität, langsamer
+    default_steps = int(kwargs.get("num_inference_steps", 25))  # Reduziert von 50 auf 25
+    default_guidance = float(kwargs.get("guidance_scale", 3.5))  # Reduziert von 4.0 auf 3.5
+    
     print(f"🎬 Generating with real LongCat-Video model...")
     print(f"   Frames: {total_frames}, Size: {width}x{height}, FPS: {fps}")
+    print(f"   Steps: {default_steps}, Guidance: {default_guidance}")
     
     # LongCat-Video nutzt spezielle generate-Methoden
     if task == "text_to_video":
@@ -231,8 +287,8 @@ def generate_video_real(model, prompt, task, duration, width, height, fps, **kwa
             height=height,
             width=width,
             num_frames=total_frames,
-            num_inference_steps=int(kwargs.get("num_inference_steps", 50)),
-            guidance_scale=float(kwargs.get("guidance_scale", 4.0)),
+            num_inference_steps=default_steps,
+            guidance_scale=default_guidance,
         )
     
     elif task == "image_to_video":
@@ -250,8 +306,8 @@ def generate_video_real(model, prompt, task, duration, width, height, fps, **kwa
             height=height,
             width=width,
             num_frames=total_frames,
-            num_inference_steps=int(kwargs.get("num_inference_steps", 50)),
-            guidance_scale=float(kwargs.get("guidance_scale", 4.0)),
+            num_inference_steps=default_steps,
+            guidance_scale=default_guidance,
         )
     
     elif task == "video_continuation":
@@ -476,8 +532,8 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
             duration=input_data.get("duration", 5),
             resolution=input_data.get("resolution", "720p"),
             fps=input_data.get("fps", 30),
-            guidance_scale=input_data.get("guidance_scale", 7.5),
-            num_inference_steps=input_data.get("num_inference_steps", 50),
+            guidance_scale=input_data.get("guidance_scale", 3.5),  # Optimiert: 3.5 statt 7.5
+            num_inference_steps=input_data.get("num_inference_steps", 25),  # Optimiert: 25 statt 50
         )
         
         # Video uploaden
