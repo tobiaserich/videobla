@@ -12,21 +12,34 @@ def flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False, wi
     Fallback implementation using PyTorch's scaled_dot_product_attention
     
     Args:
-        q, k, v: Query, Key, Value tensors [batch, seqlen, nheads, headdim]
+        q, k, v: Query, Key, Value tensors 
+                 Can be [batch, seqlen, nheads, headdim] or [total_seqlen, nheads, headdim]
         dropout_p: Dropout probability
         softmax_scale: Scaling factor for attention scores
         causal: Whether to apply causal masking
         Other args: Ignored in fallback
     
     Returns:
-        output: Attention output [batch, seqlen, nheads, headdim]
+        output: Attention output (same shape as input)
     """
-    # Reshape to [batch, nheads, seqlen, headdim] for PyTorch SDPA
-    batch, seqlen, nheads, headdim = q.shape
-    
-    q = q.transpose(1, 2)  # [batch, nheads, seqlen, headdim]
-    k = k.transpose(1, 2)
-    v = v.transpose(1, 2)
+    # Handle both 3D and 4D tensors
+    if q.dim() == 3:
+        # [total_seqlen, nheads, headdim] format (varlen format)
+        # Reshape to [1, nheads, seqlen, headdim] for SDPA
+        seqlen, nheads, headdim = q.shape
+        q = q.unsqueeze(0).transpose(1, 2)  # [1, nheads, seqlen, headdim]
+        k = k.unsqueeze(0).transpose(1, 2)
+        v = v.unsqueeze(0).transpose(1, 2)
+        squeeze_output = True
+    elif q.dim() == 4:
+        # [batch, seqlen, nheads, headdim] format
+        batch, seqlen, nheads, headdim = q.shape
+        q = q.transpose(1, 2)  # [batch, nheads, seqlen, headdim]
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+        squeeze_output = False
+    else:
+        raise ValueError(f"Expected q to be 3D or 4D tensor, got {q.dim()}D")
     
     # Scale
     if softmax_scale is None:
@@ -56,8 +69,13 @@ def flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False, wi
         
         output = torch.matmul(attn, v)
     
-    # Reshape back to [batch, seqlen, nheads, headdim]
-    output = output.transpose(1, 2).contiguous()
+    # Reshape back to original format
+    if squeeze_output:
+        # Back to [total_seqlen, nheads, headdim]
+        output = output.transpose(1, 2).squeeze(0).contiguous()
+    else:
+        # Back to [batch, seqlen, nheads, headdim]
+        output = output.transpose(1, 2).contiguous()
     
     return output
 
